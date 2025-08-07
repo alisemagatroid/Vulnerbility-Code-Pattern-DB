@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtualenv
+.venv/
+.env
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Editor/OS
+.DS_Store
+*.swp
+*.swo
+
+# Node
+node_modules/
+
+# Build/Output
+output/
+temp/
+result/
+
+# C -> Joern CPG -> AST 파서
+C-AST-Generator-main/
+
+# Data (전체 제외)
+data/
+!data/signature_db.yaml
+!data/tag_weight.py
+!data/query_variant.json
+
+# Logs/DB/Backup
+*.log
+*.db
+*.sqlite3
+*.bak
+
+# 기타
+*.orig
