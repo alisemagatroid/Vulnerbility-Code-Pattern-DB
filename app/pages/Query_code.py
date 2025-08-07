@@ -3,6 +3,7 @@ import pandas as pd
 import tempfile, subprocess, json, sys, traceback, os, shutil, time, random, importlib.util
 from pathlib import Path
 
+st.set_page_config(page_title="함수 쿼리", layout="wide")
 
 # ==== BASE 경로 세팅 ====
 BASE_DIR = Path(__file__).parent.parent.parent

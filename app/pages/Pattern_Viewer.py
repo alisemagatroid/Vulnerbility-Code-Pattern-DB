@@ -31,6 +31,13 @@ def import_module_from_file(module_name, filepath):
     spec.loader.exec_module(module)
     return module
 
+st.title("코드 패턴 DB 분석")
+st.write("""
+1. 분석할 DB 내의 함수를 왼쪽 사이드 바에서 선택하세요.
+2. 함수를 선택하면, 자동으로 해당 함수에 대한 Tag, Code Info가 표시됩니다.
+3. DB 내의 Top-k 유사 취약점 패턴과 상세 패턴 매칭 리포트가 표시됩니다.
+4. 하단의 선택바를 통해 DB내의 함수간의 Signature를 비교한 결과가 우측에 출력됩니다.
+""")
 report_module = import_module_from_file('report', str(PREREQ_DIR) + '/cwe_similarity_v8_report.py')
 tag_weight_module = import_module_from_file('tag_weight', str(TAG_WEIGHT_PATH))
 TAG_W = getattr(tag_weight_module, "TAG_W", {})
