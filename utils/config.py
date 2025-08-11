@@ -3,7 +3,7 @@ from pathlib import Path
 # 프로젝트 경로
 BASE_DIR = Path(__file__).parent.parent.parent
 PREREQ_DIR = BASE_DIR / "prerequisite"
-DATA_DIR   = BASE_DIR / "data"
+DATA_DIR = BASE_DIR / "data"
 GENERATOR_DIR = Path("/home/devel02/data/C-AST-Generator-main")
 
 # DB 파일
@@ -13,10 +13,9 @@ VARIANT_DB_PATH = DATA_DIR / 'variant_db.json'
 
 # Temp 디렉토리
 QUERY_TEMP_DIR = BASE_DIR / "temp" / "query_code"
-AST_TEMP_DIR   = BASE_DIR / "temp" / "ast"
+AST_TEMP_DIR = BASE_DIR / "temp" / "ast"
 
 TAG_WEIGHT_PATH = DATA_DIR / 'tag_weight.py'
-
 
 
 # UI 안내/설명

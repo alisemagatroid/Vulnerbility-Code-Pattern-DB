@@ -2,6 +2,8 @@ import streamlit as st
 import json, yaml, sys
 from pathlib import Path
 
+# Pattern_Viewer.py 최상단 어딘가(렌더 전에)
+st.session_state["_active_page"] = "pattern_viewer"
 
 st.set_page_config(page_title="패턴 뷰어", layout="wide")
 # ==== BASE경로 세팅 ====
@@ -96,12 +98,15 @@ def extract_ui_data(query_variant, report, top_k=1):
         for idx, cand in enumerate(report["top_matched_variants"][:top_k]):
             db_info = cand.get('db_variant_info', {})
             sig_ref = cand.get('signature_ref', {})
+            sim = cand.get('similarity_breakdown', {})
+            hybrid_sim = sim.get('hybrid', 0.0)
             topk_table.append({
                 "Rank": idx+1,
                 "CWE": db_info.get('cwe_id', ''),
                 "Pattern ID": db_info.get('pattern_id', ''),
                 "File": db_info.get('file', ''),
-                "Description": sig_ref.get('description', '')
+                "Description": sig_ref.get('description', ''),
+                "Hybrid Similarity": hybrid_sim
             })
             topk_candidates.append(cand)
     return query_code, tags1, tags2, topk_table, topk_candidates, tag_weight_map
@@ -116,11 +121,14 @@ else:
 if topk_candidates:
     cand = topk_candidates[selected_k]
     sim = cand.get('similarity_breakdown', {})
+    print("sim:", sim)
     sim_breakdown = {
         "Embedding": sim.get('embedding', 0.0),
         "TAGs": sim.get('tag_one_hot_cosine', 0.0),
         "TF-IDF": sim.get('tag_tfidf_cosine', 0.0),
-        "Hybrid": sim.get('hybrid', 0.0)
+        "Jaccard": sim.get('tag_jaccard', 0.0),
+        "Hybrid": sim.get('hybrid', 0.0),
+        "tag_details": sim.get('tag_details', {})
     }
     sig_ref = cand.get('signature_ref', {})
     signature_info = {

@@ -4,7 +4,7 @@ st.set_page_config(page_title="취약점 패턴 검색 대시보드", layout="wi
 
 st.title("취약점 패턴 검색 대시보드")
 
-st.write("#### 좌측 상단 메뉴에서 원하는 분석 페이지를 선택하세요")
+st.write("#### 좌측 사이드 바 메뉴에서 원하는 페이지를 선택하세요")
 
 st.markdown("""
 - **app** : 메인 화면으로 돌아옵니다.           

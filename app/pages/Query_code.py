@@ -3,6 +3,9 @@ import pandas as pd
 import tempfile, subprocess, json, sys, traceback, os, shutil, time, random, importlib.util
 from pathlib import Path
 
+# Query_code.py 최상단 어딘가(렌더 전에)
+st.session_state["_active_page"] = "query_code"
+
 st.set_page_config(page_title="함수 쿼리", layout="wide")
 
 # ==== BASE 경로 세팅 ====
@@ -10,6 +13,7 @@ BASE_DIR = Path(__file__).parent.parent.parent
 PREREQ_DIR = BASE_DIR / "prerequisite"
 DATA_DIR   = BASE_DIR / "data"
 UI_DIR = Path(__file__).parent.parent / "ui"
+
 SIGNATURE_DB_PATH = DATA_DIR / 'signature_db.yaml'
 
 
@@ -131,12 +135,15 @@ def extract_ui_data(query_variant, report, top_k=3):
             # 패턴매치 판정
             match_info = cand.get('signature_pattern_matching', {})
             pattern_match = "🟢 O" if match_info.get('tags_match', False) else "🔴 X"
+            sim = cand.get('similarity_breakdown', {})
+            hybrid_sim = sim.get('hybrid', 0.0)
             topk_table.append({
                 "Rank": idx+1,
                 "CWE": db_info.get('cwe_id', ''),
                 "Pattern ID": db_info.get('pattern_id', ''),
                 "File": db_info.get('file', ''),
                 "Description": sig_ref.get('description', ''),
+                "Hybrid Similarity": hybrid_sim,
                 "Pattern Match": pattern_match   # 새 컬럼
             })
             topk_candidates.append(cand)
@@ -257,7 +264,9 @@ if 'query_report' in st.session_state and 'query_variant' in st.session_state:
             "Embedding": sim.get('embedding', 0.0),
             "TAGs": sim.get('tag_one_hot_cosine', 0.0),
             "TF-IDF": sim.get('tag_tfidf_cosine', 0.0),
-            "Hybrid": sim.get('hybrid', 0.0)
+            "Jaccard": sim.get('tag_jaccard', 0.0),
+            "Hybrid": sim.get('hybrid', 0.0),
+            "tag_details": sim.get('tag_details', {})
         }
         sig_ref = cand.get('signature_ref', {})
         signature_info = {
@@ -265,6 +274,7 @@ if 'query_report' in st.session_state and 'query_variant' in st.session_state:
             "Sequence": sig_ref.get('required_sequence', ""),
             "Description": sig_ref.get('description', "")
         }
+           
         struct_match = cand.get('signature_pattern_matching', {})
         structure_raw = struct_match.get('block_structure_match', None)
         if isinstance(structure_raw, tuple) and len(structure_raw) == 2:

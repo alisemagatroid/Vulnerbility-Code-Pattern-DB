@@ -1,0 +1,66 @@
+/* 기존에 있던 전역 overflow 해제 규칙은 그대로 유지 */
+div[data-testid="stVerticalBlock"],
+div[data-testid="stHorizontalBlock"],
+div[data-testid="stColumn"],
+div[data-testid="stElementContainer"],
+div[data-testid="stMarkdownContainer"] {
+  overflow: visible !important;
+}
+
+.tag-chips {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  position: relative;            /* 스택 컨텍스트 기준 */
+  overflow: visible !important;  /* 혹시 모를 잘림 방지 */
+}
+
+.tag-chip {
+  display: inline-block;
+  position: relative;            /* z-index 적용하려면 position 필요 */
+  z-index: 0;                    /* 기본은 낮게 */
+  cursor: help;
+  padding: 4px 8px;
+  border-radius: 8px;
+  color: #111;
+  font-size: 12px;
+  line-height: 1.2;
+  border: 1px solid rgba(255,255,255,0.15);
+  transition: background 120ms ease, border-color 120ms ease, transform 120ms ease, z-index 0s;
+}
+
+/* ✨ 핵심: hover한 칩을 형제들보다 위로 */
+.tag-chip:hover {
+  transform: translateY(-1px);
+  z-index: 2147483646;           /* 칩 자체를 최상단으로 */
+}
+
+/* 툴팁은 칩 위에서 더 위로 */
+.tag-chip[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: 0;
+  top: 120%;
+  transform: translateY(6px);
+  max-width: 420px;
+  white-space: pre-line;
+  background: #111;
+  color: #fff;
+  padding: 8px 10px;
+  border: 1px solid #444;
+  border-radius: 8px;
+  box-shadow: 0 8px 22px rgba(0,0,0,.35);
+  z-index: 2147483647;           /* 칩보다 더 높게 */
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .12s ease;
+}
+.tag-chip[data-tip]:hover::after { opacity: 1; }
+
+/* 선택: 강조 클래스들은 그대로 두셔도 됩니다 */
+.tag-chip.w-strong { outline: 2px solid #ff6b6b; }
+.tag-chip.w-medium { outline: 2px dashed #f2b705; }
+.tag-chip.w-weak { opacity: .95; }
+.tag-chip.is-critical { box-shadow: 0 0 0 2px #ff4d4f inset; }
+.tag-chip.is-sink     { box-shadow: 0 0 0 2px #8bd5ff inset; }
