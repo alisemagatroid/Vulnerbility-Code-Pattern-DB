@@ -15,7 +15,10 @@ def tag_display_string(tag_item):
     return str(tag_item)
 
 
-def render_right_panel(signature_info: dict, structure_info: list, evidence: dict, risk_level: str):
+def render_right_panel(signature_info: dict, structure_info: list, evidence: dict, risk_level: str, db_code):
+    if db_code:
+        st.markdown("### 선택한 DB내 패턴의 코드")
+        st.code(db_code, language="c")
     st.subheader("Signature Match")
     # Required Tags
     req_tags = signature_info.get('Required Tags', [])
@@ -43,9 +46,10 @@ def render_right_panel(signature_info: dict, structure_info: list, evidence: dic
     else:
         st.markdown("**Sequence:**")
 
-    st.markdown("#### Structure:")
-    # TAG가 매치되는 Block이 있으면, 해당 Block의 인덱스와 함께 출력
-    st.write(" | ".join([f"{name}: {'🟩' if match else '⬜'}" for name, match in structure_info]))
+    # 아무래도 OSS를 기준으로 하면 해당 structure 매치는 사실상 불가능해서 우선 주석처리
+    # st.markdown("#### Structure:")
+    # # TAG가 매치되는 Block이 있으면, 해당 Block의 인덱스와 함께 출력
+    # st.write(" | ".join([f"{name}: {'🟩' if match else '⬜'}" for name, match in structure_info]))
 
     # === Critical evidence: Missing required_tags / sequence만 출력 ===
     reasons = evidence.get('fail_reason', []) if isinstance(evidence, dict) else []
@@ -62,3 +66,5 @@ def render_right_panel(signature_info: dict, structure_info: list, evidence: dic
 
     color = {"High": "red", "Medium": "#ECAB4A", "Low": "green"}.get(risk_level, "gray")
     st.markdown(f"**Structure Similarity:** <span style='color:{color}; font-weight:bold'>{risk_level}</span>", unsafe_allow_html=True)
+    
+    

@@ -43,7 +43,7 @@ def _weight_class(w) -> str:
         return "w-weak"
     if wf >= 3.0: return "w-strong"
     if wf >= 1.8: return "w-medium"
-    return "w-weak"
+    return "w-weak"     
 
 def _extra_tag_class(tag: str) -> str:
     t = (tag or "").upper()

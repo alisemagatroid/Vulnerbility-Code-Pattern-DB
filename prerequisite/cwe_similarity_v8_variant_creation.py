@@ -8,6 +8,7 @@ from pathlib import Path
 # ── 모듈: 정책 (TAG, BLOCK)
 #####################################################################
 INPUT_FUNCS  = {"fgets","fscanf","gets","recv","read"}
+COMMAND_FUNCS = {"system", "popen", "execl", "execvp", "execve", "SINK", "SYSTEM"} # 커맨드 관련
 DANG_FUNCS   = {"strcpy","strcat","memcpy","memmove"}
 CONVERT_FUNCS= {"atoi","strtol","atol"}
 INDEX_NAMES  = {"i","j","idx","index","data"}
@@ -48,22 +49,28 @@ TAG_W = {
     "[SAFE_ALLOC_SIZEOF]"                   : 0.0,  # 안전신호 : 올바른 sizeof(type) 사용. 정보량은 있으나 취약 신호는 아님 → [VALIDATION](1.8)보다 낮게.                          
     "[UNSAFE_ALLOC_NO_SIZEOF]"              : 3.2,  # 취약 신호 : sizeof 누락 → Type/Stack Overrun 치명 조건. 위험도·희소성 모두 [UNVALIDATED_INDEX](3.2)와 동급으로 설정
     "[STRUCT_OVERRUN]"                      : 3.8,  # 멤버 대신 구조체 전체 크기로 복사한다” 는 원인을 나타냄
-                                                    # 유형 식별 결정적, 발생 빈도 매우 낮음
     "[TYPE_OVERRUN]"                        : 3.8,  # 타입 불일치 복사
     "[STACK_OVERRUN]"                       : 3.8,  # 스택-버퍼 대상 오버런: 스택 메모리(지역 변수, ALLOCA 등)에서 할당된 버퍼의 크기를 잘못 계산하거나, 할당 이상으로 접근할 때
     "[HEAP_OVERRUN]"                        : 3.8,  # 힙-버퍼 대상 오버런
     "[OVERFLOW_LOOP_COPY]"                  : 3.6,  # 특화 취약 싱크 : “루프-복사+사이즈 미검증” 복합 조건. 
-    "[CRITICAL]"                            : 5.0,  # “핵심 증거” 슬라이스 강조—대표 임베딩 집계 시 확실히 부각   
+    "[CRITICAL]"                            : 5.0,  # “핵심 증거” 슬라이스 강조—대표 임베딩 집계 시 확실히 부각
+     # OS 명령 실행 취약점 (CWE-78)
+    "[SINK:COMMAND_EXECUTION]" : 3.5, 
+    "[SINK:FUNC:STD:system]"   : 3.5,
+    "[SINK:FUNC:STD:popen]"    : 3.5,
+    "[SINK:FUNC:STD:exec]"     : 3.5,
 }
 
 
-# CRITICAL 부여 조건
+# CRITICAL 부여 조건: 해당 조건은, 취약점이 많아질 수록 추가된다.
 # [1] 취약 함수 내 SINK 태그(예: [SINK:ARRAY:*], [SINK:FUNC:*], [STRUCT_OVERRUN], [STACK_OVERRUN]... 등)가 있으면서
 #   [UNVALIDATED], [UNVALIDATED_INDEX] 등 검증 부재 태그가 동시에 등장
 #   1. {"memcpy", "memmove"}, STRUCT_OVERRUN :  
 #   2. AssignmentExpression(Arrary) UNVALIDATED_INDEX, UNVALIDATED
 # [2] 취약 할당 구문(잘못된 ALLOCA/할당)은 항상 [CRITICAL]로 지정
 #   [UNSAFE_ALLOC_NO_SIZEOF]
+# 
+#
 
 #가중치 정책 요약
 # 5.0 ≥ w ≥ 3.0 → 패턴 식별에 결정적(취약·핵심)
@@ -316,6 +323,95 @@ def contains_var(node, var_name):
                 return True
     return False
 
+# Command injection 관련 코드의 태깅을 위한 함수
+def _subtree_contains_identifier(node, ident_name: str) -> bool:
+    """서브트리에 Identifier(ident_name)가 등장하는지 재귀 확인"""
+    if not isinstance(node, (dict, list)):
+        return False
+    if isinstance(node, dict):
+        if node.get("nodeType") == "Identifier" and node.get("name") == ident_name:
+            return True
+        for v in node.values():
+            if isinstance(v, (dict, list)) and _subtree_contains_identifier(v, ident_name):
+                return True
+    else:  # list
+        for item in node:
+            if _subtree_contains_identifier(item, ident_name):
+                return True
+    return False
+
+
+def _has_shell_metachar_in_code(code_str: str) -> bool:
+    """
+    간단한 셸 메타문자 휴리스틱.
+    - 실제 셸 파싱을 완벽히 대체하진 않지만, 위험 신호 감지용 태그로 충분.
+    """
+    if not code_str:
+        return False
+    # ;, |, &, `, $, <, >, *, ?, (), {}, [], \, "
+    # (문자열 리터럴 내부만 분리하는 정교함은 여기서 생략)
+    import re
+    return bool(re.search(r'[;&|`$<>*?(){}\[\]\\"]', code_str))
+
+
+def tag_command_injection(ast_node: dict, parent_chain=None) -> list:
+    """
+    StandardLibCall/UserDefinedCall 노드에서 COMMAND_FUNCS(system/popen/exec*) 호출을 탐지하여
+    - [SINK:COMMAND_EXECUTION]
+    - [SINK:FUNC:STD:{name}]
+    - (옵션) [SOURCE:ARG:x] / [SHELL_META]
+    - [CRITICAL]
+    태그를 부여한다.
+    """
+    tags = []
+    if not isinstance(ast_node, dict):
+        return tags
+
+    t = ast_node.get("nodeType")
+    if t not in ("StandardLibCall", "UserDefinedCall"):
+        return tags
+
+    name = ast_node.get("name", "")
+    print("CMD 관련 태그 예상 후보", name)
+    if name not in COMMAND_FUNCS:
+        return tags
+
+    # 기본 SINK 태그
+    tags.append("[SINK:COMMAND_EXECUTION]")
+    # 표기 일관성을 위해 STD로 태깅(필요시 USER/LIB 등 세분도 가능)
+    tags.append(f"[SINK:FUNC:STD:{name}]")
+
+    # --- 인자 오염(함수 인자) 여부 체크
+    try:
+        params = (ast_node.get("children", [{}])[0]).get("children", [])
+    except Exception:
+        params = []
+
+    tainted = False
+    arg_names = TAG_CONTEXT.get("func_args", set())
+    arg_hits = []
+    for arg in (arg_names or []):
+        for p in params:
+            if _subtree_contains_identifier(p, arg):
+                arg_hits.append(arg)
+                tainted = True
+                break
+
+    for hit in arg_hits:
+        tags.append(f"[SOURCE:ARG:{hit}]")
+
+    # --- 셸 메타문자 휴리스틱
+    code_str = ast_node.get("code", "")
+    if _has_shell_metachar_in_code(code_str):
+        tags.append("[SHELL_META]")
+
+    # 정책: OS 명령 실행 호출은 **항상** critical 로 승격
+    # (추후 정책을 바꾸고 싶다면 tainted or shell_meta 일 때만 CRITICAL 로 조정 가능)
+    tags.append("[CRITICAL]")
+
+    return list(dict.fromkeys(tags))
+
+
 def is_loop_index(index_var_name, parent_chain): 
     #Returns:
     #    True  - 상위에 for/while/doWhile 조건에 index_var가 등장하면
@@ -558,6 +654,7 @@ def tag_alloc_assignment(assign_node,tags_out):
         tags_out += [f"[STACK_ALLOC:{ident}]"]
     else:  # malloc
         tags_out += [f"[HEAP_ALLOC:{ident}]"]
+    
 
     if is_safe:
         tags_out.append("[SAFE_ALLOC_SIZEOF]")
@@ -574,7 +671,7 @@ def tag_alloc_assignment(assign_node,tags_out):
 
 
 def tag_node_statement(ast_node, parent_chain = None):
-
+    
     func_args = TAG_CONTEXT["func_args"]
    
     t = ast_node.get("nodeType")    
@@ -590,7 +687,6 @@ def tag_node_statement(ast_node, parent_chain = None):
     tag = []
     var_name = ast_node.get("name","unknown") 
  
-    #print(f"DEBUG: [tag_node_statement] : typeAttributeAlias:{t}")
     
     # (1) Memory Allocation  (STACK: 배열선언, 구조체 선언, ALLOCA로 메모리 할당, HEAP : malloc 등 호출)
     if t == "ArrayDeclaration":
@@ -607,6 +703,13 @@ def tag_node_statement(ast_node, parent_chain = None):
 
     # (2) 위험 함수  
     if t in ("StandardLibCall",  "UserDefinedCall") :
+        # 커맨드 인젝션 rule
+        cmd_tags = tag_command_injection(ast_node, parent_chain)
+        if cmd_tags:
+            # 커맨드 실행이면 여기서 끝 — 다른 함수 카테고리(memcpy, INPUT_FUNCS 등)로 내리지 않음
+            tag += cmd_tags
+            return list(dict.fromkeys(tag))
+        
         params = (ast_node.get("children")[0]).get("children")
         if name in {"memcpy", "memmove"} and len(params) >= 1:
             dst = params[0]
@@ -846,10 +949,13 @@ def tag_node_statement(ast_node, parent_chain = None):
 
 def extract_statements(ast_node, rootstmt_parent_chain, res=None,  parent_chain=None, debug=False):
    
+   
     if res is None: res = []
-    if not isinstance(ast_node, dict):  return res
+    if not isinstance(ast_node, dict):
+        return res
     if parent_chain is None: parent_chain = []
     
+   
     def contains_node(node, target):
         if node is target:
             return True
@@ -1111,6 +1217,24 @@ def walk_blocks(node, block_nodes, parent_idx=None, parent_counter=None):
                     "node": node
                 })
 
+    # 4-추가. COMMAND_FUNCS 블록 등록
+    if t == "StandardLibCall" and node.get("name") in COMMAND_FUNCS:
+        funcname = node.get("name")
+        block_type = f"StandardLibCall({funcname})"
+        child_counter = parent_counter.get(parent_idx, 0)
+        cur_idx = f"{parent_idx}.A{child_counter}"
+        parent_counter[parent_idx] = child_counter + 1
+
+        # 태그는 statement 수집에서 다시 모으지만, block_code에 주석으로도 남겨 가독성 ↑
+        block_code_with_tag = node.get("code", "") + "\n// [SINK:COMMAND_EXECUTION] [SINK:FUNC:STD:{}] [CRITICAL]".format(funcname)
+
+        block_nodes.append({
+            "idx": cur_idx,
+            "block_type": block_type,
+            "code": node.get("code"),
+            "node": node
+        })
+    
     # 4. 모든 children을 재귀(최상위/기타 노드 포함)  
     for c in node.get("children", []):
         walk_blocks(c, block_nodes, parent_idx=parent_idx, parent_counter=parent_counter)   
@@ -1138,12 +1262,15 @@ def build_variant(root_func, cwe_id="Qeury", pattern_id="Query", window=3, src="
     #=================================================================================================================
 
     stmts = collect_statements(body)
+    print(f"[DEBUG] collect_statements -> {len(stmts)} items", flush=True)
+
 
     # ── 1. 각 statement를 태깅
     count =0
     out_stmts = []
-    for s in stmts:
-        count += 1
+    for i, s in enumerate(stmts):
+        n = s["node"]
+        print(f"[DEBUG] stmt[{i}]: {n.get('nodeType')} | {n.get('code', '')[:80]!r}", flush=True)
               
         debugMode=False
         
@@ -1193,7 +1320,6 @@ def build_variant(root_func, cwe_id="Qeury", pattern_id="Query", window=3, src="
 
     for b in block_nodes:        
         block_root_node = b.get('node', b)
-        print(f"\n block_root_node: idx : {b['idx']} ")  
         stmt_nodes = collect_statements(block_root_node)
         #print(f"\n stmt_nodes: {stmt_nodes} ")  
        
@@ -1240,9 +1366,22 @@ def build_variant(root_func, cwe_id="Qeury", pattern_id="Query", window=3, src="
     # 대표 임베딩
     rep = calc_representative_embedding(slices, blocks)
 
+     #all_tags 수집 후 CWE 자동 매핑
+    all_tags = set()
+    for s in slices:
+        for t in s.get("tags", []):
+            all_tags.add(t)
+    for b in blocks:
+        for t in b.get("tags", []):
+            all_tags.add(t)
+
+    cwe_id_final = cwe_id
+    if "[SINK:COMMAND_EXECUTION]" in all_tags:
+        cwe_id_final = "CWE-78"
+    
     return {
         "variant_id": str(uuid.uuid4())[:12],
-        "cwe_id": "["+cwe_id+"]",
+        "cwe_id": "["+cwe_id_final+"]",
         "pattern_id": pattern_id,
         "meta": {"source": src, "file": file_name, "description": desc},
         "representative_embedding": rep,

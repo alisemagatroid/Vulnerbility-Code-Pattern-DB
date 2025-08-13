@@ -23,8 +23,7 @@ VARIANT_DB_PATH = DATA_DIR / 'variant_db.json'
 SIGNATURE_DB_PATH = DATA_DIR / 'signature_db.yaml'
 TAG_WEIGHT_PATH = DATA_DIR / 'tag_weight.py'
 
-sys.path.insert(0, str(PREREQ_DIR))
-sys.path.insert(0, str(DATA_DIR))
+
 
 def import_module_from_file(module_name, filepath):
     import importlib.util
@@ -56,6 +55,11 @@ def load_signature_db(path):
 
 variant_db = load_variant_db(VARIANT_DB_PATH)
 signature_db = load_signature_db(SIGNATURE_DB_PATH)
+
+# variant_db의 조회를 빠르게 수행하기 위한 index화
+if '_variant_index' not in st.session_state:
+    st.session_state['_variant_index'] = {v.get('variant_id'): v for v in variant_db}
+variant_index = st.session_state['_variant_index']
 
 variant_choices = [f"[{v.get('variant_id')}] {v['meta'].get('file','')}" for v in variant_db]
 query_idx = st.sidebar.selectbox(
@@ -111,6 +115,16 @@ def extract_ui_data(query_variant, report, top_k=1):
             topk_candidates.append(cand)
     return query_code, tags1, tags2, topk_table, topk_candidates, tag_weight_map
 
+# 선택한 DB의 코드를 불러오기 위한 함수
+def _extract_code_from_variant(variant: dict) -> str:
+    if not variant:
+        return ""
+    # 1) critical_slices return
+    tokens = (variant["critical_slices"][1].get("tokens", []))
+    db_critical_slices = "\n".join(tokens)
+    return db_critical_slices
+
+
 query_code, tag_cloud1, tag_cloud2, topk_table, topk_candidates, tag_weight_map = extract_ui_data(query_variant, report, top_k)
 if topk_table:
     func_choices = [f"{c['Rank']}. {c['Pattern ID']} ({c['File']})" for c in topk_table]
@@ -121,7 +135,6 @@ else:
 if topk_candidates:
     cand = topk_candidates[selected_k]
     sim = cand.get('similarity_breakdown', {})
-    print("sim:", sim)
     sim_breakdown = {
         "Embedding": sim.get('embedding', 0.0),
         "TAGs": sim.get('tag_one_hot_cosine', 0.0),
@@ -149,6 +162,14 @@ if topk_candidates:
         structure_info = []
     evidence = struct_match.get('fail_details', "")
     risk_level = cand.get('risk_level', "")
+    try:
+        vid = cand.get('db_variant_info', {}).get('variant_id')
+        if vid is not None:
+            db_variant = variant_index.get(vid)
+            db_code = _extract_code_from_variant(db_variant) if db_variant else ""
+    except Exception:
+        db_code = ""
+
 else:
     sim_breakdown = {}
     signature_info = {"Required Tags": [], "Sequence": "", "Description": ""}
@@ -167,4 +188,4 @@ with col2:
 with col3:
     st.markdown("### 📝 패턴 Signature 및 상세")
     st.info("선택한 패턴의 signature, structure 등의 세부 비교 분석 정보입니다.")
-    render_right_panel(signature_info, structure_info, evidence, risk_level)
+    render_right_panel(signature_info, structure_info, evidence, risk_level, db_code)

@@ -1,11 +1,4 @@
-네, README를 구조적으로 깔끔하게 정리하면서
-아직 utils 분리/리팩토링을 **적용 중인 단계임을 명확히 안내**하고
-**전체 폴더 구조, 주요 모듈 설명, 사용법, 리팩토링 상태**도 모두 포함하는
-최신 실무형 README 예시를 아래에 제시합니다.
-
----
-
-# 📖 README.md 예시
+# 📖 VulDB README.md
 
 (*Streamlit CWE/패턴 분석 프로젝트 기준*)
 
@@ -36,6 +29,7 @@ signature_vul_db/
 │   └── ui/
 │       ├── tag_block.py      # 태그/워드클라우드 등 UI 블록
 │       ├── topk_block.py     # TopK 유사도 UI 블록
+│       ├── tag_tooltip.css     # 태그 클라우드의 tooltip, 색상 css
 │       └── signature_block.py# 패턴 시그니처/상세 UI 블록
 ├── data/
 │   ├── signature_db.yaml     # 패턴 시그니처/설명 DB
@@ -124,15 +118,6 @@ signature_vul_db/
 * **아직 전체 코드/유틸 일원화가 완료된 상태는 아니며,
   실험적 리팩토링과 신규 함수 반영을 지속 중**
   → 코드 구조가 수시로 변경될 수 있음
-
----
-
-## 💡 기타/협업
-
-* `README.md`, 주석, 함수 docstring 등으로 **구현 현황, utils 적용 범위** 주기적 공유 필요
-* 추가 문의/이슈는 github issue 또는 사내 Slack 등 협업 채널 이용
-
----
 
 ## 🔗 참고
 

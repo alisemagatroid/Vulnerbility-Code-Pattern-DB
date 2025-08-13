@@ -36,9 +36,18 @@ from topk_block import render_mid_panel
 from signature_block import render_right_panel
 
 
-# variant_db 로드
-with open(DATA_DIR / "variant_db.json") as f:
-    variant_db = json.load(f)
+# 공통적으로 사용하는 variant_db에 대한 데이터를 캐시데이터 로딩으로 함수화 하여, i/o 개선   
+@st.cache_data
+def load_variant_db(path):
+    with open(path, "r") as f:
+        return json.load(f)
+variant_db = load_variant_db(DATA_DIR / "variant_db.json")
+
+# variant_db의 조회를 빠르게 수행하기 위한 index화
+if '_variant_index' not in st.session_state:
+    st.session_state['_variant_index'] = {v.get('variant_id'): v for v in variant_db}
+variant_index = st.session_state['_variant_index']
+
 
 # ==== TEMP DIR 준비 ====
 def clear_temp_dir(temp_dir):
@@ -116,7 +125,8 @@ def extract_ui_data(query_variant, report, top_k=3):
     query_code = ""
     # critical slice, block은 [CRITICAL] 태그를 기반으로 생성이 되기 때문에 해당 Tagging 기준에 준하지 않는 코드는 아직 이 부분이 생성되지 않음
     if "critical_blocks" in query_variant and len(query_variant["critical_blocks"]) >= 1:
-        query_code = (query_variant["critical_blocks"][0].get("block_code", []))
+        tokens = (query_variant["critical_slices"][1].get("tokens", []))
+        query_code = "\n".join(tokens)
     else: 
         query_code = query_variant.get("code", "")
     tags1 = list(set(tag for s in query_variant.get("statement_slices", []) for tag in s.get("tags", [])))
@@ -149,6 +159,18 @@ def extract_ui_data(query_variant, report, top_k=3):
             topk_candidates.append(cand)
             
     return query_code, tags1, tags2, topk_table, topk_candidates, tag_weight_map
+
+# 선택한 DB의 코드를 불러오기 위한 함수
+def _extract_code_from_variant(variant: dict) -> str:
+    if not variant:
+        return ""
+    # 1) critical_slices return
+    # tokens = (variant["critical_slices"][1].get("tokens", []))
+    # db_critical_slices = "\n".join(tokens)
+    if "critical_blocks" in variant and len(variant["critical_blocks"]) >= 1:
+        db_critical_slices = (variant["critical_blocks"][0].get("block_code", []))
+    return db_critical_slices
+
 
 st.title("함수 쿼리 및 분석")
 
@@ -258,6 +280,7 @@ if 'query_report' in st.session_state and 'query_variant' in st.session_state:
         selected_k = 0
 
     if topk_candidates:
+        # cand: topk중 선택된 함수
         cand = topk_candidates[selected_k]
         sim = cand.get('similarity_breakdown', {})
         sim_breakdown = {
@@ -288,12 +311,22 @@ if 'query_report' in st.session_state and 'query_variant' in st.session_state:
             structure_info = []
         evidence = struct_match.get('fail_details', "")
         risk_level = cand.get('risk_level', "")
+        try:
+            vid = cand.get('db_variant_info', {}).get('variant_id')
+            if vid is not None:
+                db_variant = variant_index.get(vid)
+                db_code = _extract_code_from_variant(db_variant) if db_variant else ""
+        except Exception:
+            db_code = ""
     else:
         sim_breakdown = {}
         signature_info = {"Required Tags": [], "Sequence": "", "Description": ""}
         structure_info = []
         evidence = ""
         risk_level = ""
+        db_code = ""
+
+
 
     col1, col2, col3 = st.columns([2, 6, 2])
 
@@ -310,4 +343,4 @@ if 'query_report' in st.session_state and 'query_variant' in st.session_state:
     with col3:
         st.markdown("### 📝 패턴 Signature 및 상세")
         st.info("선택한 패턴의 signature, structure 등의 세부 비교 분석 정보입니다.")
-        render_right_panel(signature_info, structure_info, evidence, risk_level)
+        render_right_panel(signature_info, structure_info, evidence, risk_level, db_code=db_code)
