@@ -36,6 +36,7 @@ signature_vul_db/
 │   ├── tag_weight.py         # 태그 가중치 사전
 │   └── query_variant.json    # 예시 입력/분석 variant
 ├── prerequisite/
+│   ├── add_variant.py # variant를 새로 추가
 │   ├── cwe_similarity_v8_variant_creation.py # variant 생성 로직
 │   └── cwe_similarity_v8_report.py           # 패턴 매칭/리포트 생성
 ├── utils/

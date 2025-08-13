@@ -28,7 +28,6 @@ result/
 C-AST-Generator-main/
 
 # Data (전체 제외)
-data/
 !data/signature_db.yaml
 !data/tag_weight.py
 !data/query_variant.json

@@ -1,0 +1,394 @@
+# ──────────────────────────────────────────────────────────────────────────────
+#  Signature for SARD example
+#    CWE-121: *Stack-Based Buffer Overflow* – “struct-member memcpy Type-Overrun”
+#    (struct array field is the **destination**, copy-size = sizeof(struct) )
+# ──────────────────────────────────────────────────────────────────────────────
+# 여기서 대상 쿼리 태그가 require 태그 중에 하나라도 누락되면 출력되지 않는 구조
+- pattern_id: CWE-121_TypeOverrun-Stack-P1
+  cwe_id: [CWE-121]
+  description: >
+    Stack-allocated structure에 대해 memcpy/memmove로 구조체 전체 크기만큼 복사하여
+    스택 영역을 침범하는 오버런(구조체 Type-Overrun) 취약점.
+  signature:
+    required_tags:
+      # SINK 계열은 표준+사용자 래퍼까지 OR 매칭
+      - or:
+          - "[SINK:FUNC:STD:memcpy:struct.member]"
+          - "[SINK:FUNC:STD:memmove:struct.member]"
+      - "[STRUCT_OVERRUN]"
+      - "[STACK_OVERRUN]"
+    optional_tags:
+      - "[CRITICAL]" # 있으면 신뢰도 ↑
+      - "[ASSIGN:STACK_ARRAY]"
+      - "[CALL:USER:printLine]"
+    required_sequence:
+      - or:
+          - "[SINK:FUNC:STD:memcpy:struct.member]"
+          - "[SINK:FUNC:STD:memmove:struct.member]"
+      - "[STRUCT_OVERRUN]"
+    block_structure:
+      - CompoundStatement
+      - {
+          in:
+            [
+              or:
+                [
+                  StandardLibCall(memcpy:struct.member),
+                  StandardLibCall(memmove:struct.member),
+                ],
+              AssignmentExpression(ArraySubscript),
+            ],
+        }
+
+- pattern_id: CWE-121_129-Stack-P1
+  cwe_id: [CWE-121, CWE-129]
+  description: >
+    *Stack-based buffer overflow* caused by using a **tainted console value**
+    (`fgets` → `atoi`) as an array index **after 하한(0) 검증만 수행**.
+    상한 미검증으로 `buffer[data]` 쓰기가 발생한다.
+
+  signature:
+    ## 반드시 등장해야 하는 TAG
+    required_tags:
+      - "[SOURCE:INPUT]" # 콘솔 입력
+      - "[CONVERT:atoi]" # 문자열→정수 변환
+      - "[UNVALIDATED_INDEX]" # 하한만 체크
+      - "[SINK:STACK_ARRAY]" # 스택 배열 쓰기
+
+    ## 있으면 가중치 우대
+    optional_tags:
+      - "[LOOP]" # 결과 배열 출력 루프
+      - "[ASSIGN:STACK_ARRAY]" # 배열 대입 태그
+      - "[TAINTED_INIT]" # taint 초기화
+      - "[STACK_ALLOC]" # buffer[10] 선언
+    ## TAG 출현 순서 규칙 (앞→뒤)
+    required_sequence:
+      - "[SOURCE:INPUT]"
+      - "[CONVERT:atoi]"
+      - "[UNVALIDATED_INDEX]"
+      - "[SINK:STACK_ARRAY]"
+    ## 최소 블록 계층 구조
+    block_structure:
+      - CompoundStatement # 함수 본문
+      - {
+          in:
+            [
+              "IfStatement",
+              "[UNVALIDATED_INDEX]",
+              "AssignmentExpression(ArraySubscript)",
+            ],
+        }
+        # if (data >= 0) … buffer[data]=1
+
+- pattern_id: CWE-121_129-ArgIndex-P1
+  cwe_id: [CWE-121, CWE-129]
+  description: >
+    *Stack array write with “lower-bound-only” check (argument as index)*  
+    A function receives an integer argument (`data`) that is **not fully
+    validated**.  The code checks `data >= 0` but **omits the upper-bound
+    test `data < N`** before writing to a fixed-size stack array
+    (`buffer[data] = 1`).  Typical in SARD test-cases using a global/static
+    flag to steer the bad sink.
+
+  signature:
+    # 1. 반드시 존재해야 하는 TAG
+    required_tags:
+      - "[SOURCE:ARG]" # 인자로 전달된 인덱스
+      - "[UNVALIDATED_INDEX]" # 하한만 검증
+      - "[SINK:STACK_ARRAY]" # 스택 배열 쓰기
+    # 2. 있으면 가중치를 높이는 TAG
+    optional_tags:
+      - "[LOOP]" # 값 출력용 for 루프
+      - "[CALL:USER:printIntLine]"
+    # 3. TAG 발생 순서 (앞→뒤)
+    required_sequence:
+      - "[SOURCE:ARG]"
+      - "[UNVALIDATED_INDEX]"
+      - "[SINK:STACK_ARRAY]"
+    # 4. 최소 블록 구조
+    block_structure:
+      - CompoundStatement
+      - {
+          in:
+            [
+              "IfStatement",
+              "[UNVALIDATED_INDEX]",
+              "AssignmentExpression(ArraySubscript)",
+            ],
+        }
+
+- pattern_id: CWE-121_131-Stack-Loop-P1
+  cwe_id: [CWE-121, CWE-131] # Stack-overflow + bad ALLOCA size
+  description: >
+    *Stack ALLOCA-loop pattern*: memory is allocated on the stack with
+    `ALLOCA(10)` **without multiplying by `sizeof(int)`**, then a `for`
+    loop copies ten integers from a local array into that undersized
+    buffer – leading to a stack-based buffer overflow.
+
+  signature:
+    # 1. 필수 TAG  ─ 모두 존재해야 매칭
+    required_tags:
+      - "[STACK_ALLOC]" # ALLOCA or local array decl.
+      - "[UNSAFE_ALLOC_NO_SIZEOF]" # 크기 계산 실수
+      - "[OVERFLOW_LOOP_COPY]" # 루프 기반 과다 복사
+
+    # 2. 선택 TAG  ─ 존재 시 스코어 ↑
+    optional_tags:
+      - "[LOOP]" # for/while 루프 복사
+      - "[SINK:STACK_ARRAY]" # data[i] = source[i]
+      - "[ASSIGN:STACK_ARRAY]"
+      - "[STACK_OVERRUN]" # 도구가 추가한다면 활용
+    # 3. TAG 발생 순서 (앞→뒤)
+    required_sequence:
+      - "[STACK_ALLOC]"
+      - "[OVERFLOW_LOOP_COPY]"
+    # 4. 최소 블록 구조
+    block_structure:
+      - CompoundStatement
+      - { in: [ForStatement, AssignmentExpression(ArraySubscript)] }
+
+- pattern_id: CWE-121_131-Stack-memcpy-P1
+  cwe_id: [CWE-121, CWE-131] # Stack overflow + bad ALLOCA size
+  description: >
+    *Stack ALLOCA-memcpy pattern*: memory is allocated on the stack with
+    `ALLOCA(10)` (missing `sizeof(int)`), and a single call to
+    `memcpy()` copies `10*sizeof(int)` bytes into that undersized buffer,
+    causing a stack-based buffer overflow.
+
+  signature:
+    # 1. 반드시 포함되어야 하는 TAG
+    required_tags:
+      - "[STACK_ALLOC]" # ALLOCA 또는 지역 배열
+      - "[UNSAFE_ALLOC_NO_SIZEOF]" # sizeof 누락
+      - or:
+          - "[SINK:FUNC:STD:memcpy]" # memcpy 등 함수 호출
+          - "[SINK:FUNC:STD:memmove]"
+      - "[STACK_OVERRUN]" # 스택 영역 과다 쓰기
+
+    # 2. 선택적으로 있으면 가중치가 올라가는 TAG
+    optional_tags:
+      - "[SOURCE]" # source 배열 초기화 등
+      - "[ASSIGN:STACK_ARRAY]" # 초기화 대입
+    # 3. TAG 발생 순서 (앞→뒤)
+    required_sequence:
+      - "[STACK_ALLOC]"
+      - or:
+          - "[SINK:FUNC:STD:memcpy]"
+          - "[SINK:FUNC:STD:memmove]"
+    # 4. 최소 블록 구조 (복사 호출이 실제로 포함돼야 함)
+    block_structure:
+      - CompoundStatement
+      - { in: [StandardLibCall(memcpy)] }
+
+# ───── CWE-122 Variant signature ───────────────────────────────────────────
+- pattern_id: CWE-122_TypeOverrun-Heap-P1
+  cwe_id: [CWE-122]
+  description: >
+    Heap-allocated structure에 대해 memcpy/memmove로 구조체 전체 크기만큼 복사하여
+    힙 영역을 침범하는 오버런(구조체 Type-Overrun) 취약점.
+
+  signature:
+    # 1. 핵심 TAG ― 반드시 포함 (힙, memcpy/memmove, 구조체 전체, CRITICAL)
+    required_tags:
+      - "[HEAP_ALLOC]" # malloc/calloc/new 등 힙 할당
+      - or:
+          - "[SINK:FUNC:STD:memcpy:struct.member]"
+          - "[SINK:FUNC:STD:memmove:struct.member]"
+      - "[STRUCT_OVERRUN]"
+      - "[HEAP_OVERRUN]"
+    # 2. 선택 TAG ― (있으면 진단/확증 신호)
+    optional_tags:
+      - "[CRITICAL]" # 있으면 신뢰도 ↑
+      - "[ASSIGN:HEAP_ARRAY]" # 예: buf[…]=… 등 후속 대입
+      - "[CALL:USER:printLine]"
+    # 3. 태그 발생 순서 (힙 할당→복사→오버런)
+    required_sequence:
+      - "[HEAP_ALLOC]"
+      - or:
+          - "[SINK:FUNC:STD:memcpy:struct.member]"
+          - "[SINK:FUNC:STD:memmove:struct.member]"
+      - "[STRUCT_OVERRUN]"
+    # 4. 블록 구조 (복사와 배열 대입 포함)
+    block_structure:
+      - CompoundStatement
+      - {
+          in:
+            [
+              or:
+                [
+                  StandardLibCall(memcpy:struct.member),
+                  StandardLibCall(memmove:struct.member),
+                ],
+              AssignmentExpression(ArraySubscript),
+            ],
+        }
+
+- pattern_id: CWE-122_129-Heap-P1
+  cwe_id: [CWE-122, CWE-129] # Heap overflow + Improper index validation
+  description: >
+    *Heap array index-error pattern*: user-controlled integer is converted
+    from text (`atoi`), **only the lower bound is checked** (`data >= 0`),
+    and the value is used to write into a heap-allocated array – enabling an
+    out-of-bounds write when `data >= 10`.
+
+  signature:
+    # 1. 필수 TAG  ─ 존재해야 매칭 성립
+    required_tags:
+      - "[SOURCE:INPUT]" # fgets / scanf … ① 입력 유입
+      - "[CONVERT]" # atoi/strtol 등 ② 문자열→정수
+      - "[HEAP_ALLOC]" # malloc / calloc / new
+      - "[SINK:HEAP_ARRAY]" # buffer[data] = …
+      - "[UNVALIDATED_INDEX]" # 상한 미검증
+    # 2. 선택 TAG  ─ 있으면 가중치 ↑
+    optional_tags:
+      - "[LOOP]" # for(i=0;…) 값 출력
+      - "[FREE]" # free(buffer)
+      - "[ASSIGN:HEAP_ARRAY]" # buffer[i] = 0 초기화 등
+      - "[HEAP_OVERRUN]" # 도구가 부여한다면 사용
+    # 3. TAG 발생 순서 (앞→뒤)
+    required_sequence:
+      - "[SOURCE:INPUT]"
+      - "[CONVERT]"
+      - "[HEAP_ALLOC]"
+      - "[SINK:HEAP_ARRAY]"
+    # 4. 최소 블록 구조
+    block_structure:
+      - CompoundStatement
+      - {
+          in:
+            [
+              "IfStatement",
+              "[UNVALIDATED_INDEX]",
+              "AssignmentExpression(ArraySubscript)",
+            ],
+        }
+
+- pattern_id: CWE-122_129-ArgIndex-Heap-P1
+  cwe_id: [CWE-122, CWE-129] # Heap-based BOF  +  Improper Validation of Array Index
+  description: >
+    Heap으로 할당한 버퍼에 대해 인덱스 검증을 '0 이상'만 확인하고
+    상한 검증을 하지 않은 채 쓰기(write)하여 발생하는 버퍼 오버플로우.
+
+  signature:
+    # 1. 반드시 포함되어야 하는 핵심 TAG
+    required_tags:
+      - "[SOURCE:ARG]" # 인자로 전달된 인덱스
+      - "[HEAP_ALLOC]" # malloc / calloc 등 힙 할당
+      - "[UNVALIDATED_INDEX]" # 상한 미검증
+      - "[SINK:HEAP_ARRAY]" # 힙 배열 쓰기
+
+    # 2. 보조 TAG (있으면 가중치 상승)
+    optional_tags:
+      - "[SAFE_ALLOC_SIZEOF]" # sizeof(int) 사용
+      - "[CALL:USER:printIntLine]"
+      - "[FREE]"
+      - "[INIT]" # 초기화 루프
+      - "[LOOP]"
+
+    # 3. TAG 발생 순서 (핵심 흐름)
+    required_sequence:
+      - "[HEAP_ALLOC]"
+      - "[SOURCE:ARG]"
+      - "[SINK:HEAP_ARRAY]" # 검증 실패 후 실제 쓰기
+
+    # 4. 최소 블록 구조
+    block_structure:
+      - CompoundStatement
+      - {
+          in:
+            [
+              "IfStatement",
+              "[UNVALIDATED_INDEX]",
+              "AssignmentExpression(ArraySubscript)",
+            ],
+        }
+
+- pattern_id: CWE-122_131-Heap-Loop-P1
+  cwe_id: [CWE-122, CWE-131] # Heap-based BOF + Wrong-size allocation
+  description: >
+    Heap 버퍼를 `sizeof(int)` 없이 잘못 할당한 뒤,
+    `for`-loop 로 10개의 원소를 복사해 발생 가능한
+    *overflow loop-copy* 취약점.
+
+  signature:
+    # 1) 반드시 포함해야 할 핵심 TAG
+    required_tags:
+      - "[HEAP_ALLOC]" # malloc 등 힙 할당
+      - "[UNSAFE_ALLOC_NO_SIZEOF]" # sizeof 사용 안 함
+      - "[OVERFLOW_LOOP_COPY]" # 잘못 할당된 버퍼에 루프-복사
+    # 2) 있으면 위험 신호를 더 강화하는 보조 TAG
+    optional_tags:
+      - "[LOOP]" # for/while 루프 복사
+      - "[SINK:HEAP_ARRAY]" # 힙 버퍼 쓰기
+      - "[ASSIGN:STACK_ARRAY]"
+      - "[STACK_OVERRUN]" # 도구가 추가한다면 활용'
+    # 3) 핵심 흐름(태그) 발생 순서
+    required_sequence:
+      - "[HEAP_ALLOC]"
+      - "[OVERFLOW_LOOP_COPY]"
+    # 4) 최소 블록 구조 (루프 안에 배열 대입)
+    block_structure:
+      - CompoundStatement
+      - { in: [ForStatement, AssignmentExpression(ArraySubscript)] }
+
+- pattern_id: CWE-122_131-Heap-memcpy-P1
+  cwe_id: [CWE-122, CWE-131] # Heap-based overflow + missing NUL space
+  description: >
+    *Heap memcpy “off-by-one” pattern* – memory is allocated with
+    `malloc(10)` for a 10-byte string but later `memcpy()` copies
+    `strlen(src)+1` (11 bytes) including the NUL terminator, overrunning
+    the heap buffer.
+
+  signature:
+    # 1. 필수 TAG — 이 조합·순서가 맞아야 이 패턴으로 본다
+    required_tags:
+      - "[HEAP_ALLOC]" # malloc 사용
+      - "[UNSAFE_ALLOC_NO_SIZEOF]" # sizeof 누락
+      - or:
+          - "[SINK:FUNC:STD:memcpy]"
+          - "[SINK:FUNC:STD:memmove]"
+      - "[HEAP_OVERRUN]" # 힙 영역 쓰기 초과
+    # 2. 있으면 가중치를 높이는 보조 TAG
+    optional_tags:
+      - "[SOURCE]" # SRC_STRING 초기화 등
+      - "[ASSIGN:HEAP_ARRAY]" # 복사 전/후 대입
+    # 3. 필수 TAG 발생 순서 (앞→뒤)
+    required_sequence:
+      - "[HEAP_ALLOC]"
+      - "[SINK:FUNC:STD:memcpy]"
+    # 4. 최소 블록 구조
+    block_structure:
+      - CompoundStatement
+      - { in: [StandardLibCall(memcpy)] } # memcpy 가 반드시 내부에 존재
+
+- pattern_id: "CWE78_system-P1"
+  cwe_id: "CWE-78"
+  description: > 
+    "system(cmd) 기반 OS 명령 실행 취약 패턴"
+  
+  signature:
+    required_tags:
+      - "[SINK:COMMAND_EXECUTION]"
+      - or:
+          - "[SINK:FUNC:STD:system]"
+          - "[SINK:FUNC:STD:SYSTEM]"
+          - "[CALL:USER:SYSTEM]"
+          - "[CALL:USER:system]"
+    required_sequence: ""        # 필요시 블록 시퀀스 제약 넣기
+
+- pattern_id: "CWE78_system-P2"
+  cwe_id: "CWE-78"
+  description: > 
+    "system(cmd) 기반 OS 명령 실행 취약 패턴 2"
+  
+  signature:
+    required_tags:
+      - "[SINK:COMMAND_EXECUTION]"
+      - or:
+          - "[SINK:FUNC:STD:system]"
+          - "[SINK:FUNC:STD:SYSTEM]"
+          - "[CALL:USER:SYSTEM]"
+          - "[CALL:USER:system]"
+    required_sequence: ""        # 필요시 블록 시퀀스 제약 넣기
+  
+
